@@ -4,8 +4,8 @@ stages:
   - Docker Build
 
 variables:
-  PYTHON_VERSION: 3.9
-  POETRY_VERSION: 1.1.5
+  PYTHON_VERSION: "3.9"
+  POETRY_VERSION: "1.1.5"
 
 .poetry_image:
   image: python:$PYTHON_VERSION
