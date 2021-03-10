@@ -4,6 +4,7 @@ import os
 import sys
 import yaml
 from itertools import chain
+from deploy_pipeline import __cli_name__
 import deploy_pipeline.vars.parsers as varp
 from deploy_pipeline.labels.matching import query_from_string, query_from_object, new_query, Operator, LabelMatch
 from deploy_pipeline.labels.utils import with_data
@@ -13,7 +14,7 @@ from deploy_pipeline.pipeline.config import load_pipeline_from_config, Stage
 from deploy_pipeline.pipeline.templates import get_template
 
 
-CLI_NAME = 'deploy-pipeline'
+CLI_NAME = __cli_name__
 logger = log.getLogger(CLI_NAME)
 
 DEFAULT_CONFIG = {
