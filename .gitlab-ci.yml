@@ -42,7 +42,7 @@ Build Docker Container:
   before_script:
     - echo ${DOCKER_API_KEY} | docker login -u ${DOCKER_USERNAME} --password-stdin ${DOCKER_REPO_URL}
   script:
-    - CONTAINER_PATH=${DOCKER_REPO_URL}/${CI_PROJECT_PATH_SLUG}
+    - CONTAINER_PATH=${DOCKER_REPO_URL}/${CI_PROJECT_PATH}
     - CONTAINER_TAGS="${CONTAINER_PATH}:${CI_COMMIT_SHORT_SHA}"
     - >
       docker build --no-cache
