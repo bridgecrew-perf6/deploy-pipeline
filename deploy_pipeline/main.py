@@ -117,8 +117,13 @@ def deploy_pipeline(args: dict) -> int:
     pipeline_template = get_template(pipeline.template)
     pipeline_template_vars = {
         'stages': [],
-        'includes': [],
-        'jobs': []
+        # it is worth pointing out that even at phase 0.00001 we have out grown flowing everything from the pipeline
+        # yaml into the pipeline object, even stuff that doesn't necessarily belong there.
+        #
+        # this should be fixed
+        'includes': pipeline.includes,
+        'jobs': [],
+        'vars': variables,
     }
 
     # put here for logging purposes, otherwise we could just use a list comprehension in the template variables

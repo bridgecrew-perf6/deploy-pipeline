@@ -48,6 +48,7 @@ class Pipeline:
 
     template: str
     host_order_label: str
+    includes: List
     stages: List
     _phases: List
 
@@ -103,7 +104,7 @@ class Stage:
     _pipeline: Pipeline
     _order_groups: List
 
-    def __init__(self, pipeline: Pipeline, order_groups: List, reverse: bool = False):
+    def __init__(self, pipeline: Pipeline, order_groups: Iterable, reverse: bool = False):
         self._pipeline = pipeline
         self._order_groups = sorted(order_groups, reverse=reverse)
 
@@ -127,6 +128,7 @@ def load_pipeline_from_config(pipeline_config: Dict) -> Pipeline:
 
     pipeline.template = with_full_path(pipeline_config['template'])
     pipeline.host_order_label = pipeline_config['host_order_label']
+    pipeline.includes = pipeline_config.get('includes', [])
 
     # load all of the phases for this pipeline
     for phase in pipeline_config['phases']:
