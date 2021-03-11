@@ -36,3 +36,23 @@ Build with Poetry:
     paths:
       - dist/*
       - ./version
+
+Build Docker Container:
+  stage: Docker Build
+  before_script:
+    - echo ${DOCKER_API_KEY} | docker login -u ${DOCKER_USERNAME} --password-stdin ${DOCKER_REPO_URL}
+  script:
+    - CONTAINER_PATH=${DOCKER_REPO_URL}/${CI_PROJECT_PATH_SLUG}
+    - CONTAINER_TAGS="${CONTAINER_PATH}:${CI_COMMIT_SHORT_SHA}"
+    - >
+      docker build --no-cache
+      $(for CONTAINER_TAG in ${CONTAINER_TAGS}; do echo "-t $CONTAINER_TAG "; done)
+      -f Dockerfile
+      --build-arg PYTHON_VERSION="${PYTHON_VERSION}"
+      --build-arg BUILD_DATE="$(date -u)"
+      --build-arg BUILD_REPO="${CI_PROJECT_PATH}:${CI_COMMIT_REF_NAME}"
+      --build-arg BUILD_HASH="${CI_COMMIT_SHA}"
+      --build-arg APP_VERSION=$(cat ./version)
+      .
+    - for CONTAINER_TAG in ${CONTAINER_TAGS}; do echo "Pushing Container ${CONTAINER_TAG}"; docker push ${CONTAINER_TAG}; done
+    - 'echo "Pushed Container Image(s): ${CONTAINER_TAGS}"'
