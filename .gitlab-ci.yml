@@ -57,5 +57,5 @@ Build Docker Container:
     - for CONTAINER_TAG in ${CONTAINER_TAGS}; do echo "Pushing Container ${CONTAINER_TAG}"; docker push ${CONTAINER_TAG}; done
     - 'echo "Pushed Container Image(s): ${CONTAINER_TAGS}"'
   rules:
-    - if: '$CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH'
-      when: never
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: always
