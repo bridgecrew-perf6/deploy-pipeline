@@ -1,177 +1,151 @@
-from collections import defaultdict
-from itertools import product
-from typing import Dict, List, Union, Tuple, Iterable
-import os
+from copy import deepcopy
+from typing import Dict, Set, Tuple
+from deploy_pipeline.labels.matching import query_from_object
+from deploy_pipeline.pipeline.utils import with_full_path
 
 
-# a job is tied to a phase, and even though a phase can only exist once, that doesn't mean a job will run only once.
-# the job will run 1 * number of stages (which is a cartesian product of stages and phases, i.e. 0-changebroker,
-# 0-partition, etc).
-class Job:
-    _job_name: str
+def copy_and_init_path(func):
+    def wrapped_func(*args):
+        # don't modify the caller's data, this could get EXPENSIVE if we are called lots of times with giant
+        # pipelines it doesn't seem likely but i'm just pointing it out.
+        inputs = deepcopy(args[0])
+        # provides a way to debug if necessary
+        path_keys = args[1] if len(args) > 1 else ("<root>",)
+        return func(inputs, path_keys)
 
-    phase: str
-    template: str
-    var_key: Union[str, None]
-
-    host_selectors: List
-    package_selectors: List
-
-    @property
-    def name(self):
-        return self._job_name
-
-    def __init__(self, job_name: str, phase_name: str):
-        if not job_name:
-            raise JobException(f'Job Name is Required')
-
-        self._job_name = job_name
-
-        self.phase = phase_name
-        self.template = ""
-        self.var_key = None
-
-        # strictly speaking nothing super bad will happen if the selectors are duplicated, ya we have to do more work
-        # parsing the same thing over and over again, but the world won't end (like in the case of the order of phases).
-        #
-        # avoid the un-necessary overhead of getters and settings (not really pythonic) and just allow access to the
-        # mutable lists.
-        self.host_selectors = []
-        self.package_selectors = []
+    return wrapped_func
 
 
-# a pipeline is the wrapper around phases and jobs.  it is responsible for creating the stages (remember the product of
-# stage and phase).
-class Pipeline:
-    _job_name_cache: set
-    _job_phase: Dict[str, List[Job]]
+@copy_and_init_path
+def validate_pipeline(pipeline_template: Dict, path_keys: Tuple) -> Dict:
+    # 'the key at this level': True (required to be present) or False (optional)
+    level_keys = {
+        'phases': True, 'template': True, 'includes': False,
+        'selectors': False, 'host_order_label': True, 'jobs': True
+    }
 
-    template: str
-    host_order_label: str
-    includes: List
-    stages: List
-    _phases: List
+    if missing_keys := _validate_keys(
+            _filter_required_keys(level_keys),
+            _filter_present_keys(pipeline_template)
+    ):
+        raise RootValidationException(f"Missing Required Key(s): {','.join(missing_keys)}", path_keys)
 
-    def __init__(self):
-        # see the explanation in the add_job
-        self._job_name_cache = set()
-        self._job_phase = defaultdict(list)
+    # phases needs to be an List
+    #
+    # look i know that duck typing should be used here, but given that a screw up in the pipeline could an outage,
+    # i am trying to make things as *safe* as possible.
+    if type(pipeline_template['phases']) is not list:
+        raise RootValidationException(f'Invalid phases Key: List is Required', path_keys)
 
-        self.template = ""
-        self._phases = []
+    # template needs to be present
+    pipeline_template['template'] = with_full_path(pipeline_template['template'])
 
-    def add_job(self, job: Job) -> "Pipeline":
-        # there should be a question here as to why uniqueness is being enforced on the job name and really the only
-        # answers I can come up with is:
-        # 1. Gitlab does it that way (the main reason)
-        # 2. The setup of the wrapper yaml (the pipeline) kinda mandates a unique name since the jobs are put under the
-        #    same key, rather than being split into their appropriate phase.
-        if job.name in self._job_name_cache:
-            raise JobException(f'Duplicate Job Name: {job.name}')
+    # if provided, includes should be valid file paths
+    pipeline_template['includes'] = [with_full_path(i) for i in pipeline_template.get('includes', [])]
 
-        # a job should belong to a pre-existing phase
-        if job.phase not in self._phases:
-            raise InvalidPhaseException(f'Invalid Phase Name: {job.phase}')
+    # if provided, selectors should be valid
+    if selectors := pipeline_template.get('selectors', {}):
+        pipeline_template['selectors'] = validate_selectors(selectors, path_keys)
 
-        # store the job and the phase
-        self._job_name_cache.add(job.name)
-        self._job_phase[job.phase].append(job)
+    # jobs should be a dict
+    pipeline_template['jobs'] = validate_jobs(pipeline_template['jobs'], path_keys + ('jobs',))
 
-        return self
-
-    def get_jobs_by_phase(self, phase_name) -> Iterable[Job]:
-        yield from self._job_phase[phase_name]
-
-    def get_jobs(self) -> Iterable[Job]:
-        for _, phase_jobs in self._job_phase.items():
-            for phase_job in phase_jobs:
-                yield phase_job
-
-    def add_phase(self, phase_name: str) -> "Pipeline":
-        # validate the phase name is unique (we shouldn't have ANY duplicates)
-        if phase_name in self._phases:
-            raise DuplicatePhaseException(f'Duplicate Phase Name: {phase.name}')
-
-        self._phases.append(phase_name)
-        return self
-
-    def get_phases(self) -> Iterable[str]:
-        yield from self._phases
+    return pipeline_template
 
 
-# a stage represents a resolved stage + phase.
-class Stage:
-    _pipeline: Pipeline
-    _order_groups: List
+@copy_and_init_path
+def validate_jobs(jobs: Dict, path_keys: Tuple) -> Dict:
+    # jobs should be a dict
+    if type(jobs) is not dict:
+        raise JobValidationException(f'Invalid Key: Dict is Required', path_keys)
 
-    def __init__(self, pipeline: Pipeline, order_groups: Iterable, reverse: bool = False):
-        self._pipeline = pipeline
-        self._order_groups = sorted(order_groups, reverse=reverse)
+    # validate the individual jobs
+    for job_k, job_v in jobs.items():
+        jobs[job_k] = validate_job(job_v, path_keys + (job_k,))
 
-    def _get_stages(self) -> Tuple[str, str, str]:
-        for stage, phase_name in product(self._order_groups, self._pipeline.get_phases()):
-            yield stage, phase_name, f'{stage}-{phase_name}'
-
-    def get_stages(self) -> str:
-        for _, _, stage in self._get_stages():
-            yield stage
-
-    def get_stage_jobs(self) -> Tuple[str, str, str, Job]:
-        for stage, phase_name, stage_name in self._get_stages():
-            for job in self._pipeline.get_jobs_by_phase(phase_name):
-                yield stage, phase_name, stage_name, job
+    return jobs
 
 
-def load_pipeline_from_config(pipeline_config: Dict) -> Pipeline:
-    # instantiate a new pipeline
-    pipeline = Pipeline()
+@copy_and_init_path
+def validate_job(job: Dict, path_keys: Tuple) -> Dict:
+    level_keys = {'phase': True, 'var_key': True, 'template': True, 'selectors': True}
 
-    pipeline.template = with_full_path(pipeline_config['template'])
-    pipeline.host_order_label = pipeline_config['host_order_label']
-    pipeline.includes = pipeline_config.get('includes', [])
+    if missing_job_keys := _validate_keys(_filter_required_keys(level_keys), _filter_present_keys(job)):
+        raise JobValidationException(f"Missing Job Key(s): {', '.join(missing_job_keys)}", path_keys)
 
-    # load all of the phases for this pipeline
-    for phase in pipeline_config['phases']:
-        pipeline.add_phase(phase)
+    # validate the job template can be found
+    job['template'] = with_full_path(job['template'])
 
-    # load all of the jobs
-    for job_name, job_v in pipeline_config['jobs'].items():
-        job = Job(job_name, job_v['phase'])
-        job.template = job_v['template']
-        job.var_key = job_v['var_key']
+    job['selectors'] = validate_selectors(job['selectors'], path_keys + ('selectors',))
 
-        # make the author be EXPLICIT about the selectors they want to use (otherwise bad things can happen),
-        # if they want to include all packages, just pass an empty array for a selector
-        job.host_selectors.extend(job_v['selectors']['host'])
-        job.package_selectors.extend(job_v['selectors']['package'])
-
-        pipeline.add_job(job)
-
-    return pipeline
+    return job
 
 
-def with_full_path(path: str) -> str:
-    if not os.path.exists(path):
-        raise InvalidJobTemplateException(f'Invalid Path: {path}')
+@copy_and_init_path
+def validate_selectors(selectors: Dict, path_keys: Tuple) -> Dict:
+    level_keys = {'host': False, 'package': False}
 
-    return os.path.realpath(path)
+    # selectors should be a dict
+    if type(selectors) is not dict:
+        raise SelectorValidationException(f"Invalid Selectors: Dict is Required", path_keys)
+
+    if missing_keys := _validate_keys(_filter_required_keys(level_keys), _filter_present_keys(selectors)):
+        raise SelectorValidationException(f"Missing Required Selector(s): {', '.join(missing_keys)}", path_keys)
+
+    # host and package should be a list
+    for level_key in level_keys:
+        if type(selectors.get(level_key, [])) is not list:
+            raise SelectorValidationException(f"Invalid Selector: Expected '{level_key}' List", path_keys)
+
+    # generates a pretty-ish
+    for selector_key, selector_query in (
+            (selector_type, selector_query)
+            for selector_type, selector_type_value in selectors.items() for selector_query in selector_type_value
+    ):
+        validate_formed_selectors(selector_query, path_keys + (selector_key,))
+
+    return selectors
 
 
-class PhaseException(Exception):
+@copy_and_init_path
+def validate_formed_selectors(selector: Dict, path_keys: Tuple) -> Dict:
+    # shove the selector into the query_from_object function which should validate it enough for our purposes
+    # it does do minor object construction, but it's a namedtuple for right now which should be pretty lightweight
+    try:
+        query_from_object(selector)
+    except KeyError:
+        # query from object just just calls __get__ on whatever is passed in and throws a key error if it's not found
+        # we should handle the exception and add some additional context so finding the error isn't a pita.
+        raise SelectorValidationException(f'Malformed Selector: {selector}', path_keys) from None
+
+    return selector
+
+
+def _validate_keys(required: Set, present: Set) -> Set:
+    return required - present
+
+
+def _filter_present_keys(present: Dict) -> Set:
+    return {p for p in present.keys() if not p.startswith('.')}
+
+
+def _filter_required_keys(required: Dict) -> Set:
+    return {k for k, v in required.items() if v}
+
+
+class PipelineValidationException(Exception):
+    def __init__(self, msg: str, key_path: Tuple):
+        super().__init__(f"{msg} [Path: {'->'.join(key_path)}]")
     pass
 
 
-class DuplicatePhaseException(PhaseException):
+class RootValidationException(PipelineValidationException):
     pass
 
 
-class InvalidPhaseException(PhaseException):
+class JobValidationException(PipelineValidationException):
     pass
 
 
-class JobException(Exception):
-    pass
-
-
-class InvalidJobTemplateException(JobException):
+class SelectorValidationException(PipelineValidationException):
     pass

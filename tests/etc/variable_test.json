@@ -1,0 +1,10 @@
+{
+  "partition": {
+    "actions": [
+      "stop", "install", "start"
+    ],
+    "types": [
+      "binary", "index", "config"
+    ]
+  }
+}

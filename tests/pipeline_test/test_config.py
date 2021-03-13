@@ -1,35 +1,173 @@
-from deploy_pipeline.pipeline.config import Pipeline, Stage, Job
+import pytest
+import os
+import deploy_pipeline.pipeline.config as deploy_config
+from tests.conftest import config_dir
+from deploy_pipeline.pipeline.utils import FileNotFoundException
+from functools import partial
 
 
-def test_stage_generation(pipeline_phases, pipeline_stages):
-    pipeline = Pipeline()
+@pytest.mark.parametrize("fn_inputs,fn_to_call", [
+    (
+            {
+                "host": [{"key": "key", "operator": "In", "values": ["values_1"]}]
+            },
+            deploy_config.validate_selectors
+    ),
+    (
+            {
+                "job_1": {
+                    "phase": "phase_1",
+                    "var_key": "var_key_1",
+                    "template": os.path.join(config_dir(), "valid_file"),
+                    "selectors": {
+                        "host": [{"key": "key", "operator": "In", "values": ["values_1"]}]
+                    }
+                }
+            },
+            deploy_config.validate_jobs
+    ),
+    (
+            {
+                'phases': ['phase_1'],
+                "template": os.path.join(config_dir(), "valid_file"),
+                "host_order_label": "foo",
+                "includes": [],
+                "jobs": {
+                    "job_1": {
+                        "phase": "phase_1",
+                        "var_key": "var_key_1",
+                        "template": os.path.join(config_dir(), "valid_file"),
+                        "selectors": {
+                            "host": [{"key": "key", "operator": "In", "values": ["values_1"]}]
+                        }
+                    }
+                }
+            },
+            deploy_config.validate_pipeline
+    ),
+    (
+            {
+                'phases': ['phase_1'],
+                "template": os.path.join(config_dir(), "valid_file"),
+                "host_order_label": "foo",
+                "includes": [],
+                "selectors": {
+                    "host": [],
+                    "package": [],
+                },
+                "jobs": {
+                    "job_1": {
+                        "phase": "phase_1",
+                        "var_key": "var_key_1",
+                        "template": os.path.join(config_dir(), "valid_file"),
+                        "selectors": {
+                            "host": [{"key": "key", "operator": "In", "values": ["values_1"]}]
+                        }
+                    }
+                }
+            },
+            deploy_config.validate_pipeline
+    )
+])
+def test_valid_config(fn_inputs, fn_to_call):
+    assert fn_to_call(fn_inputs) == fn_inputs
 
-    for pipeline_phase in pipeline_phases:
-        pipeline.add_phase(pipeline_phase)
 
-    job_stages = Stage(pipeline, pipeline_stages)
-    stages = [stage for stage in job_stages.get_stages()]
-    assert stages == ["0-pre", "0-changebroker", "0-partition",
-                      "1-pre", "1-changebroker", "1-partition",
-                      "2-pre", "2-changebroker", "2-partition"]
-
-
-def test_job_generation(pipeline_phases, pipeline_stages, pipeline_jobs):
-    pipeline = Pipeline()
-
-    for pipeline_phase in pipeline_phases:
-        pipeline.add_phase(pipeline_phase)
-
-    for job_k, job_v in pipeline_jobs.items():
-        job = Job(job_k, job_v['phase'])
-        pipeline.add_job(job)
-
-    stages = Stage(pipeline, pipeline_stages)
-    jobs = [(stage, phase, stage_name, job.name) for stage, phase, stage_name, job in stages.get_stage_jobs()]
-
-    assert jobs == [(0, 'changebroker', '0-changebroker', 'job-changebroker'),
-                    (0, 'partition', '0-partition', 'job-partition'),
-                    (1, 'changebroker', '1-changebroker', 'job-changebroker'),
-                    (1, 'partition', '1-partition', 'job-partition'),
-                    (2, 'changebroker', '2-changebroker', 'job-changebroker'),
-                    (2, 'partition', '2-partition', 'job-partition')]
+@pytest.mark.parametrize("fn_input,fn_to_call,throws", [
+    (
+            "a string",
+            deploy_config.validate_selectors,
+            deploy_config.SelectorValidationException
+    ),
+    (
+            {
+                "host": {}
+            },
+            deploy_config.validate_selectors,
+            deploy_config.SelectorValidationException
+    ),
+    (
+            {
+                "host": [{"key_invalid": "key", "operator": "In", "values": ["values_1"]}],
+                "package": [{"key": "key_2", "operator": "In", "values": ["values_2"]}]
+            },
+            deploy_config.validate_selectors,
+            deploy_config.SelectorValidationException
+    ),
+    (
+            {
+                "job_1": {
+                    "phase": "missing_required_key_template",
+                    "var_key": "var_key_1",
+                    "selectors": {
+                        "host": [{"key": "key", "operator": "In", "values": ["values_1"]}]
+                    }
+                }
+            },
+            deploy_config.validate_jobs,
+            deploy_config.JobValidationException
+    ),
+    (
+            {
+                "job_1": {
+                    "phase": "phase_1",
+                    "var_key": "var_key_1",
+                    "template": "invalid_file_path",
+                    "selectors": {
+                        "host": [{"key": "key", "operator": "In", "values": ["values_1"]}]
+                    }
+                }
+            },
+            deploy_config.validate_jobs,
+            FileNotFoundException
+    ),
+    (
+            {
+                "template": os.path.join(config_dir(), "valid_file"),
+                "host_order_label": "foo",
+                "includes": [],
+                "selectors": {
+                    "host": [],
+                    "package": [],
+                },
+                "jobs": {
+                    "job_1": {
+                        "phase": "phase_1",
+                        "var_key": "var_key_1",
+                        "template": os.path.join(config_dir(), "valid_file"),
+                        "selectors": {
+                            "host": [{"key": "key", "operator": "In", "values": ["values_1"]}]
+                        }
+                    }
+                }
+            },
+            deploy_config.validate_pipeline,
+            deploy_config.RootValidationException
+    ),
+    (
+            {
+                'phases': ['phase_1'],
+                "host_order_label": "foo",
+                "includes": [],
+                "selectors": {
+                    "host": [],
+                    "package": [],
+                },
+                "jobs": {
+                    "job_1": {
+                        "phase": "phase_1",
+                        "var_key": "var_key_1",
+                        "template": os.path.join(config_dir(), "valid_file"),
+                        "selectors": {
+                            "host": [{"key": "key", "operator": "In", "values": ["values_1"]}]
+                        }
+                    }
+                }
+            },
+            deploy_config.validate_pipeline,
+            deploy_config.RootValidationException
+    )
+])
+def test_invalid_config(fn_input, fn_to_call, throws):
+    with pytest.raises(throws):
+        fn_to_call(fn_input)

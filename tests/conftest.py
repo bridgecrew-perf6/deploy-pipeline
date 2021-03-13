@@ -1,4 +1,9 @@
 import pytest
+import os
+
+
+def config_dir():
+    return os.path.join(os.path.dirname(__file__), "etc")
 
 
 @pytest.fixture
@@ -66,6 +71,7 @@ def pipeline_phases():
 @pytest.fixture
 def pipeline_stages():
     return [0, 1, 2]
+
 
 @pytest.fixture
 def pipeline_jobs():

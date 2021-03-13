@@ -10,7 +10,8 @@ from deploy_pipeline.labels.matching import query_from_string, query_from_object
 from deploy_pipeline.labels.utils import with_data
 from deploy_pipeline.labels.joining import LabelJoin
 from deploy_pipeline.labels.grouping import LabelGroup
-from deploy_pipeline.pipeline.config import load_pipeline_from_config, Stage
+from deploy_pipeline.pipeline.config import validate_pipeline
+from deploy_pipeline.pipeline.pipeline import load_pipeline_from_config, Stage
 from deploy_pipeline.pipeline.templates import get_template
 
 
@@ -69,9 +70,9 @@ def deploy_pipeline(args: dict) -> int:
 
     logger.info(f"Parsing Pipeline File: {args['pipeline']}")
 
-    # read in our pipeline config file
+    # read and validate our pipeline config file
     with open(args['pipeline']) as f:
-        pipeline_config = yaml.safe_load(f)
+        pipeline_config = validate_pipeline(yaml.safe_load(f), ("foo",))
 
     # attempt at the single responsibility principle.  this makes the pipeline loader responsible for parsing out
     # the pipeline yaml into the pipeline object (a little factory).  this frees the pipeline object from having to
@@ -79,19 +80,34 @@ def deploy_pipeline(args: dict) -> int:
     pipeline = load_pipeline_from_config(pipeline_config)
 
     # do any initial host queries
-    # this takes advantage of the fact that currently "host_order_label" is required in the pipeline yaml
-    # to make sure we don't completely bork an environment by doing *everything* at once, it just so happens
-    # that host-order-label is simply an exists query of the host labels
+    host_queries = filter(None, chain(
+        # take advantage of the fact that currently "host_order_label" is required in the pipeline yaml
+        # to make sure we don't completely bork an environment by doing *everything* at once, it just so happens
+        # that host-order-label is simply an exists query of the host labels.
+        [query_from_string(pipeline_config['host_order_label'])],
+        # add in any pipeline level host queries
+        [query_from_object(hq_pipe) for hq_pipe in pipeline_config.get('selectors', {}).get('host', [])],
+        # add in any queries supplied at the command line
+        [query_from_string(hq_arg) for hq_arg in args['host_selector']]
+    ))
+
     host_query = LabelMatch(config['hosts'], 'labels')
-    host_query.add_queries([query_from_string(q) for q in chain([pipeline.host_order_label], args['host_selector'])])
+    host_query.add_queries(host_queries)
     matched_hosts = with_data(host_query.do(), config['hosts'])
     if not matched_hosts:
         logger.error("No Host(s) Matching Label Query")
         return 1
 
     # do any initial package queries
+    package_queries = filter(None, chain(
+        # filer anything passed in via the command line
+        [query_from_string(q) for q in args['package_selector']],
+        # filter out any pipeline level package queries
+        [query_from_object(pq_pipe) for pq_pipe in pipeline_config.get('selectors', {}).get('package', [])]
+    ))
+
     package_query = LabelMatch(config['packages'], 'labels')
-    package_query.add_queries([query_from_string(q) for q in args['package_selector']])
+    package_query.add_queries(package_queries)
     matched_packages = package_query.do()
     if not matched_packages:
         logger.error("No Package(s) Matched Label Query")
@@ -106,7 +122,7 @@ def deploy_pipeline(args: dict) -> int:
     host_order = LabelGroup(
         with_data(host_packages.keys(), config['hosts']),
         "labels"
-    ).group(pipeline.host_order_label)
+    ).group(pipeline_config['host_order_label'])
     if not host_order:
         logger.error("Unable to Determine Group(s)")
         return 1
@@ -117,11 +133,7 @@ def deploy_pipeline(args: dict) -> int:
     pipeline_template = get_template(pipeline.template)
     pipeline_template_vars = {
         'stages': [],
-        # it is worth pointing out that even at phase 0.00001 we have out grown flowing everything from the pipeline
-        # yaml into the pipeline object, even stuff that doesn't necessarily belong there.
-        #
-        # this should be fixed
-        'includes': pipeline.includes,
+        'includes': pipeline_config.get('includes', []),
         'jobs': [],
         'vars': variables,
     }
@@ -146,7 +158,7 @@ def deploy_pipeline(args: dict) -> int:
         # each job provides the ability to add host and package selectors
         # of their own to be able to include (or exclude) hosts and packages at that particular phase.
         matched_stage_hosts = LabelMatch(matched_hosts, 'labels').add_queries(chain(
-            [new_query(pipeline.host_order_label, Operator.In, [stage])],
+            [new_query(pipeline_config['host_order_label'], Operator.In, [stage])],
             [query_from_object(hq) for hq in job.host_selectors]
         )).do()
 
@@ -184,10 +196,10 @@ def deploy_pipeline(args: dict) -> int:
                 "hostname": hostname,
                 "packages": sorted(packages),
                 "vars": variables.get(job.var_key, {})
-            }).strip() + "\n")
+            }))
 
     # write to a file if specified, otherwise go ahead and dump it to stdout
-    rendered_pipeline = pipeline_template.render(pipeline_template_vars)
+    rendered_pipeline = pipeline_template.render(pipeline_template_vars).strip()
     if args['output']:
         logger.info(f'Writing Pipeline File: {args["output"]}')
         with open(args['output'], 'w') as f:
