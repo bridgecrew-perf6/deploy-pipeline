@@ -12,10 +12,13 @@ from tests.conftest import config_dir
         'foo=bar', {'bar': 'baz'}, parsers.with_var, {'foo': 'bar', 'bar': 'baz'},
     ),
     (
-        'foo={"bar": "baz"}', None, parsers.with_var, {'foo': {'bar': 'baz'}}
+        'foo={"bar": {"baz": ["bil"]}}', None, parsers.with_var, {"foo": '{"bar": {"baz": ["bil"]}}'}
     ),
     (
-        'foo={"bar": "baz"}', {'alpha': {'beta': 'delta'}}, parsers.with_var, {'foo': {'bar': 'baz'}, 'alpha': {'beta': 'delta'}}
+        '{"bar": "baz"}', None, parsers.with_var, {'bar': 'baz'}
+    ),
+    (
+        '{"foo": {"bar": "baz"}}', {'alpha': {'beta': 'delta'}}, parsers.with_var, {'foo': {'bar': 'baz'}, 'alpha': {'beta': 'delta'}}
     )
 ])
 def test_valid_variables(source, inputs, fn_to_call, expected):
