@@ -72,7 +72,7 @@ def deploy_pipeline(args: dict) -> int:
 
     # read and validate our pipeline config file
     with open(args['pipeline']) as f:
-        pipeline_config = validate_pipeline(yaml.safe_load(f), ("foo",))
+        pipeline_config = validate_pipeline(yaml.safe_load(f))
 
     # attempt at the single responsibility principle.  this makes the pipeline loader responsible for parsing out
     # the pipeline yaml into the pipeline object (a little factory).  this frees the pipeline object from having to
@@ -195,7 +195,7 @@ def deploy_pipeline(args: dict) -> int:
                 "jobname": job.name,
                 "hostname": hostname,
                 "packages": sorted(packages),
-                "vars": variables.get(job.var_key, {})
+                "vars": {**variables, **job.variables}
             }))
 
     # write to a file if specified, otherwise go ahead and dump it to stdout

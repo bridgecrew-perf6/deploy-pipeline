@@ -17,7 +17,9 @@ from functools import partial
             {
                 "job_1": {
                     "phase": "phase_1",
-                    "var_key": "var_key_1",
+                    "variables": {
+                        "type": "var_type"
+                    },
                     "template": os.path.join(config_dir(), "valid_file"),
                     "selectors": {
                         "host": [{"key": "key", "operator": "In", "values": ["values_1"]}]
@@ -35,7 +37,9 @@ from functools import partial
                 "jobs": {
                     "job_1": {
                         "phase": "phase_1",
-                        "var_key": "var_key_1",
+                        "variables": {
+                            "type": "var_type"
+                        },
                         "template": os.path.join(config_dir(), "valid_file"),
                         "selectors": {
                             "host": [{"key": "key", "operator": "In", "values": ["values_1"]}]
@@ -58,7 +62,9 @@ from functools import partial
                 "jobs": {
                     "job_1": {
                         "phase": "phase_1",
-                        "var_key": "var_key_1",
+                        "variables": {
+                            "type": "var_type"
+                        },
                         "template": os.path.join(config_dir(), "valid_file"),
                         "selectors": {
                             "host": [{"key": "key", "operator": "In", "values": ["values_1"]}]
@@ -98,7 +104,9 @@ def test_valid_config(fn_inputs, fn_to_call):
             {
                 "job_1": {
                     "phase": "missing_required_key_template",
-                    "var_key": "var_key_1",
+                    "variables": {
+                        "type": "var_type"
+                    },
                     "selectors": {
                         "host": [{"key": "key", "operator": "In", "values": ["values_1"]}]
                     }
@@ -111,7 +119,9 @@ def test_valid_config(fn_inputs, fn_to_call):
             {
                 "job_1": {
                     "phase": "phase_1",
-                    "var_key": "var_key_1",
+                    "variables": {
+                        "type": "var_type"
+                    },
                     "template": "invalid_file_path",
                     "selectors": {
                         "host": [{"key": "key", "operator": "In", "values": ["values_1"]}]
@@ -133,7 +143,9 @@ def test_valid_config(fn_inputs, fn_to_call):
                 "jobs": {
                     "job_1": {
                         "phase": "phase_1",
-                        "var_key": "var_key_1",
+                        "variables": {
+                            "type": "var_type"
+                        },
                         "template": os.path.join(config_dir(), "valid_file"),
                         "selectors": {
                             "host": [{"key": "key", "operator": "In", "values": ["values_1"]}]
@@ -156,7 +168,9 @@ def test_valid_config(fn_inputs, fn_to_call):
                 "jobs": {
                     "job_1": {
                         "phase": "phase_1",
-                        "var_key": "var_key_1",
+                        "variables": {
+                            "type": "var_type"
+                        },
                         "template": os.path.join(config_dir(), "valid_file"),
                         "selectors": {
                             "host": [{"key": "key", "operator": "In", "values": ["values_1"]}]

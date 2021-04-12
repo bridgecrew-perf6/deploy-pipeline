@@ -11,7 +11,7 @@ class Job:
 
     phase: str
     template: str
-    var_key: Union[str, None]
+    variables: Union[Dict, None]
 
     host_selectors: List
     package_selectors: List
@@ -28,7 +28,7 @@ class Job:
 
         self.phase = phase_name
         self.template = ""
-        self.var_key = None
+        self.variables = {}
 
         # strictly speaking nothing super bad will happen if the selectors are duplicated, ya we have to do more work
         # parsing the same thing over and over again, but the world won't end (like in the case of the order of phases).
@@ -136,7 +136,7 @@ def load_pipeline_from_config(pipeline_config: Dict) -> Pipeline:
     for job_name, job_v in pipeline_config['jobs'].items():
         job = Job(job_name, job_v['phase'])
         job.template = job_v['template']
-        job.var_key = job_v['var_key']
+        job.variables = job_v.get('variables', {})
 
         # make the author be EXPLICIT about the selectors they want to use (otherwise bad things can happen),
         # if they want to include all packages, just pass an empty array for a selector

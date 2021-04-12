@@ -68,13 +68,17 @@ def validate_jobs(jobs: Dict, path_keys: Tuple) -> Dict:
 
 @copy_and_init_path
 def validate_job(job: Dict, path_keys: Tuple) -> Dict:
-    level_keys = {'phase': True, 'var_key': True, 'template': True, 'selectors': True}
+    level_keys = {'phase': True, 'variables': False, 'template': True, 'selectors': True}
 
     if missing_job_keys := _validate_keys(_filter_required_keys(level_keys), _filter_present_keys(job)):
         raise JobValidationException(f"Missing Job Key(s): {', '.join(missing_job_keys)}", path_keys)
 
     # validate the job template can be found
     job['template'] = with_full_path(job['template'])
+
+    # variables (if supplied) should be a dict
+    if job.get('variables') and not isinstance(job['variables'], dict):
+        raise JobValidationException(f"Job Variable(s) Require Key/Value", path_keys)
 
     job['selectors'] = validate_selectors(job['selectors'], path_keys + ('selectors',))
 
